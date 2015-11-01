@@ -59,6 +59,7 @@ PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(false);
 PA_MODULE_USAGE("path=<device object path> "
                 "autodetect_mtu=<boolean> "
+                "profile=<a2dp|hsp|hfgw> "
                 "sco_sink=<name of sink> "
                 "sco_source=<name of source> ");
 
@@ -76,6 +77,7 @@ PA_MODULE_USAGE("path=<device object path> "
 static const char* const valid_modargs[] = {
     "path",
     "autodetect_mtu",
+    "profile",
     "sco_sink",
     "sco_source",
     NULL
@@ -169,8 +171,11 @@ struct userdata {
 
     struct hsp_info hsp;
 
+    char *default_profile;
     bool transport_acquire_pending;
     pa_io_event *stream_event;
+
+    pa_defer_event *set_default_profile_event;
 };
 
 typedef enum pa_bluetooth_form_factor {
@@ -2185,6 +2190,7 @@ static int add_card(struct userdata *u) {
     pa_bluetooth_profile_t *p;
     const char *uuid;
     void *state;
+    const char *default_profile;
 
     pa_assert(u);
     pa_assert(u->device);
@@ -2246,6 +2252,34 @@ static int add_card(struct userdata *u) {
     u->card->userdata = u;
     u->card->set_profile = set_profile_cb;
     pa_card_choose_initial_profile(u->card);
+
+    /* If the "profile" modarg is given, we have to override whatever the usual
+     * policy chose in pa_card_choose_initial_profile(). */
+
+    if ((default_profile = pa_modargs_get_value(u->modargs, "profile", NULL))) {
+        cp = pa_hashmap_get(u->card->profiles, default_profile);
+        if (cp) {
+            pa_log_debug("Using %s profile as default", default_profile);
+
+            p = PA_CARD_PROFILE_DATA(cp);
+            if (*p != PA_BLUETOOTH_PROFILE_OFF && (!d->transports[*p] ||
+                    d->transports[*p]->state == PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED)) {
+                /* XXX: This implies that the "profile waiting" timeout has
+                * occured. Do we have any hope? */
+                pa_log_warn("Default profile not connected, selecting off profile");
+                pa_card_set_profile(
+                    u->card,
+                    pa_hashmap_get(u->card->profiles, "off"),
+                    false);
+                u->default_profile = pa_xstrdup(default_profile);
+            } else {
+                pa_card_set_profile(u->card, cp, false);
+            }
+        } else {
+            pa_log_warn("Profile '%s' not valid or not supported by device.", default_profile);
+        }
+    }
+
     pa_card_put(u->card);
 
     p = PA_CARD_PROFILE_DATA(u->card->active_profile);
@@ -2361,6 +2395,23 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y, 
     return PA_HOOK_OK;
 }
 
+static void set_default_profile_cb(pa_mainloop_api *api, pa_defer_event *e, void *user_data) {
+    struct userdata *u = user_data;
+
+    pa_assert(u);
+
+    if (!u->default_profile)
+        return;
+
+    pa_log_debug("Setting default profile %s", u->default_profile);
+
+    pa_assert_se(pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, u->default_profile), false) >= 0);
+    pa_xfree(u->default_profile);
+    u->default_profile = NULL;
+
+    api->defer_enable(e, 0);
+}
+
 /* Run from main thread */
 static pa_hook_result_t transport_state_changed_cb(pa_bluetooth_discovery *y, pa_bluetooth_transport *t, struct userdata *u) {
     pa_assert(t);
@@ -2370,7 +2421,10 @@ static pa_hook_result_t transport_state_changed_cb(pa_bluetooth_discovery *y, pa
                  pa_bluetooth_profile_to_string(t->profile),
                  pa_bluetooth_transport_state_to_string(t->state));
 
-    if (t == u->transport && t->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED)
+    if (u->profile == PA_BLUETOOTH_PROFILE_OFF && pa_bluetooth_device_any_transport_connected(u->device) && u->default_profile)
+        u->core->mainloop->defer_enable(u->set_default_profile_event, 1);
+
+    else if (t == u->transport && t->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED)
         pa_assert_se(pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, "off"), false) >= 0);
 
     if (t->device == u->device)
@@ -2580,6 +2634,9 @@ int pa__init(pa_module* m) {
     if (!(u->msg = pa_msgobject_new(bluetooth_msg)))
         goto fail;
 
+    u->set_default_profile_event = u->core->mainloop->defer_new(u->core->mainloop, set_default_profile_cb, u);
+    u->core->mainloop->defer_enable(u->set_default_profile_event, 0);
+
     u->msg->parent.process_msg = device_process_msg;
     u->msg->card = u->card;
     u->stream_setup_done = false;
@@ -2664,6 +2721,13 @@ void pa__done(pa_module *m) {
 
     if (u->modargs)
         pa_modargs_free(u->modargs);
+
+    if (u->default_profile)
+        pa_xfree(u->default_profile);
+
+    if (u->set_default_profile_event)
+        u->core->mainloop->defer_free(u->set_default_profile_event);
+
     pa_xfree(u);
 }
 
