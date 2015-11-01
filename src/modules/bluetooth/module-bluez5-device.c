@@ -107,9 +107,7 @@ PA_DEFINE_PRIVATE_CLASS(bluetooth_msg, pa_msgobject);
 
 struct hsp_info {
     pa_sink *sco_sink;
-    void (*sco_sink_set_volume)(pa_sink *s);
     pa_source *sco_source;
-    void (*sco_source_set_volume)(pa_source *s);
 };
 
 struct userdata {
@@ -2169,22 +2167,6 @@ static pa_card_profile *create_card_profile(struct userdata *u, pa_bluetooth_pro
     return cp;
 }
 
-static void save_sco_volume_callbacks(struct userdata *u) {
-    pa_assert(u);
-    pa_assert(USE_SCO_OVER_PCM(u));
-
-    u->hsp.sco_sink_set_volume = u->hsp.sco_sink->set_volume;
-    u->hsp.sco_source_set_volume = u->hsp.sco_source->set_volume;
-}
-
-static void restore_sco_volume_callbacks(struct userdata *u) {
-    pa_assert(u);
-    pa_assert(USE_SCO_OVER_PCM(u));
-
-    pa_sink_set_set_volume_callback(u->hsp.sco_sink, u->hsp.sco_sink_set_volume);
-    pa_source_set_set_volume_callback(u->hsp.sco_source, u->hsp.sco_source_set_volume);
-}
-
 /* Run from main thread */
 static int set_profile_cb(pa_card *c, pa_card_profile *new_profile) {
     struct userdata *u;
@@ -2350,9 +2332,6 @@ static int add_card(struct userdata *u) {
 
     p = PA_CARD_PROFILE_DATA(u->card->active_profile);
     u->profile = *p;
-
-    if (USE_SCO_OVER_PCM(u))
-        save_sco_volume_callbacks(u);
 
     pa_log_debug("Created card (current profile %s)",
                  pa_bluetooth_profile_to_string(u->profile));
@@ -2776,9 +2755,6 @@ void pa__done(pa_module *m) {
 
     if (u->decoder_buffer)
         pa_xfree(u->decoder_buffer);
-
-    if (USE_SCO_OVER_PCM(u))
-        restore_sco_volume_callbacks(u);
 
     if (u->msg)
         pa_xfree(u->msg);
