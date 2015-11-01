@@ -157,7 +157,7 @@ pa_bluetooth_transport *pa_bluetooth_transport_new(pa_bluetooth_device *d, const
     return t;
 }
 
-static const char *transport_state_to_string(pa_bluetooth_transport_state_t state) {
+const char *pa_bluetooth_transport_state_to_string(pa_bluetooth_transport_state_t state) {
     switch(state) {
         case PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED:
             return "disconnected";
@@ -274,7 +274,7 @@ void pa_bluetooth_transport_set_state(pa_bluetooth_transport *t, pa_bluetooth_tr
     old_any_connected = pa_bluetooth_device_any_transport_connected(t->device);
 
     pa_log_debug("Transport %s state: %s -> %s",
-                 t->path, transport_state_to_string(t->state), transport_state_to_string(state));
+                 t->path, pa_bluetooth_transport_state_to_string(t->state), pa_bluetooth_transport_state_to_string(state));
 
     t->state = state;
 

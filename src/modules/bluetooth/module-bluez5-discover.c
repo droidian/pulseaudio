@@ -37,16 +37,21 @@ PA_MODULE_LOAD_ONCE(true);
 PA_MODULE_USAGE(
     "headset=ofono|native|auto"
     "autodetect_mtu=<boolean>"
+    "sco_sink=<name of sink> "
+    "sco_source=<name of source> "
 );
 
 static const char* const valid_modargs[] = {
     "headset",
     "autodetect_mtu",
+    "sco_sink",
+    "sco_source",
     NULL
 };
 
 struct userdata {
     pa_module *module;
+    pa_modargs *modargs;
     pa_core *core;
     pa_hashmap *loaded_device_paths;
     pa_hook_slot *device_connection_changed_slot;
@@ -73,6 +78,17 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y, 
         /* a new device has been connected */
         pa_module *m;
         char *args = pa_sprintf_malloc("path=%s autodetect_mtu=%i", d->path, (int)u->autodetect_mtu);
+
+        if (pa_modargs_get_value(u->modargs, "sco_sink", NULL) &&
+            pa_modargs_get_value(u->modargs, "sco_source", NULL)) {
+            char *tmp;
+
+            tmp = pa_sprintf_malloc("%s sco_sink=\"%s\" sco_source=\"%s\"", args,
+                                    pa_modargs_get_value(u->modargs, "sco_sink", NULL),
+                                    pa_modargs_get_value(u->modargs, "sco_source", NULL));
+            pa_xfree(args);
+            args = tmp;
+        }
 
         pa_log_debug("Loading module-bluez5-device %s", args);
         pa_module_load(&m, u->module->core, "module-bluez5-device", args);
@@ -108,7 +124,7 @@ int pa__init(pa_module *m) {
 
     if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
         pa_log("failed to parse module arguments.");
-        goto fail;
+        goto fail_free_modargs;
     }
 
     pa_assert_se(headset_str = pa_modargs_get_value(ma, "headset", default_headset_backend));
@@ -120,17 +136,18 @@ int pa__init(pa_module *m) {
         headset_backend = HEADSET_BACKEND_AUTO;
     else {
         pa_log("headset parameter must be either ofono, native or auto (found %s)", headset_str);
-        goto fail;
+        goto fail_free_modargs;
     }
 
     autodetect_mtu = false;
     if (pa_modargs_get_value_boolean(ma, "autodetect_mtu", &autodetect_mtu) < 0) {
         pa_log("Invalid boolean value for autodetect_mtu parameter");
-        goto fail;
+        goto fail_free_modargs;
     }
 
     m->userdata = u = pa_xnew0(struct userdata, 1);
     u->module = m;
+    u->modargs = ma;
     u->core = m->core;
     u->autodetect_mtu = autodetect_mtu;
     u->loaded_device_paths = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
@@ -142,12 +159,12 @@ int pa__init(pa_module *m) {
         pa_hook_connect(pa_bluetooth_discovery_hook(u->discovery, PA_BLUETOOTH_HOOK_DEVICE_CONNECTION_CHANGED),
                         PA_HOOK_NORMAL, (pa_hook_cb_t) device_connection_changed_cb, u);
 
-    pa_modargs_free(ma);
     return 0;
 
-fail:
+fail_free_modargs:
     if (ma)
         pa_modargs_free(ma);
+fail:
     pa__done(m);
     return -1;
 }
@@ -168,6 +185,9 @@ void pa__done(pa_module *m) {
 
     if (u->discovery)
         pa_bluetooth_discovery_unref(u->discovery);
+
+    if (u->modargs)
+        pa_modargs_free(u->modargs);
 
     pa_xfree(u);
 }
