@@ -37,6 +37,7 @@ PA_MODULE_LOAD_ONCE(true);
 PA_MODULE_USAGE(
     "headset=ofono|native|auto"
     "autodetect_mtu=<boolean>"
+    "profile=<a2dp|hsp|hfgw> "
     "sco_sink=<name of sink> "
     "sco_source=<name of source> "
 );
@@ -44,6 +45,7 @@ PA_MODULE_USAGE(
 static const char* const valid_modargs[] = {
     "headset",
     "autodetect_mtu",
+    "profile",
     "sco_sink",
     "sco_source",
     NULL
@@ -78,6 +80,15 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y, 
         /* a new device has been connected */
         pa_module *m;
         char *args = pa_sprintf_malloc("path=%s autodetect_mtu=%i", d->path, (int)u->autodetect_mtu);
+
+        if (pa_modargs_get_value(u->modargs, "profile", NULL)) {
+            char *profile;
+
+            profile = pa_sprintf_malloc("%s profile=\"%s\"", args,
+                                    pa_modargs_get_value(u->modargs, "profile", NULL));
+            pa_xfree(args);
+            args = profile;
+        }
 
         if (pa_modargs_get_value(u->modargs, "sco_sink", NULL) &&
             pa_modargs_get_value(u->modargs, "sco_source", NULL)) {
