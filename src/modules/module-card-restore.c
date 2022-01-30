@@ -55,7 +55,8 @@ PA_MODULE_USAGE(
 #define SAVE_INTERVAL (10 * PA_USEC_PER_SEC)
 
 static const char* const valid_modargs[] = {
-    "restore_bluetooth_profile=<boolean>"
+    "restore_bluetooth_profile",
+    NULL
 };
 
 struct userdata {
@@ -561,7 +562,7 @@ static pa_hook_result_t card_choose_initial_profile_callback(pa_core *core, pa_c
     if (!u->restore_bluetooth_profile) {
         const char *s = pa_proplist_gets(card->proplist, PA_PROP_DEVICE_BUS);
         if (pa_safe_streq(s, "bluetooth"))
-            return PA_HOOK_OK;
+            goto finish;
     }
 
     if (e->profile[0]) {
@@ -581,6 +582,7 @@ static pa_hook_result_t card_choose_initial_profile_callback(pa_core *core, pa_c
         }
     }
 
+finish:
     entry_free(e);
 
     return PA_HOOK_OK;
@@ -616,7 +618,7 @@ static pa_hook_result_t card_preferred_port_changed_callback(pa_core *core, pa_c
 int pa__init(pa_module*m) {
     pa_modargs *ma = NULL;
     struct userdata *u;
-    char *fname;
+    char *state_path;
     bool restore_bluetooth_profile;
 
     pa_assert(m);
@@ -646,17 +648,15 @@ int pa__init(pa_module*m) {
     pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_CARD_PROFILE_ADDED], PA_HOOK_NORMAL, (pa_hook_cb_t) card_profile_added_callback, u);
     pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_PORT_LATENCY_OFFSET_CHANGED], PA_HOOK_NORMAL, (pa_hook_cb_t) port_offset_change_callback, u);
 
-    if (!(fname = pa_state_path("card-database", true)))
+    if (!(state_path = pa_state_path(NULL, true)))
         goto fail;
 
-    if (!(u->database = pa_database_open(fname, true))) {
-        pa_log("Failed to open volume database '%s': %s", fname, pa_cstrerror(errno));
-        pa_xfree(fname);
+    if (!(u->database = pa_database_open(state_path, "card-database", true, true))) {
+        pa_xfree(state_path);
         goto fail;
     }
 
-    pa_log_info("Successfully opened database file '%s'.", fname);
-    pa_xfree(fname);
+    pa_xfree(state_path);
 
     pa_modargs_free(ma);
     return 0;
