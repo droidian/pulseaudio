@@ -36,3 +36,6 @@ stamp-*
 .dirstamp
 *.orig
 *.rej
+
+# Added by Droidian
+!.circleci/
