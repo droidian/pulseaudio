@@ -85,7 +85,7 @@ AM_PROG_CC_C_O
 AC_PROG_CXX
 AC_PROG_GCC_TRADITIONAL
 AC_USE_SYSTEM_EXTENSIONS
-AX_CXX_COMPILE_STDCXX_11([ext],[optional])
+AX_CXX_COMPILE_STDCXX_17([ext],[optional])
 
 # M4
 
@@ -1425,8 +1425,8 @@ fi
 AC_ARG_ENABLE([webrtc-aec],
     AS_HELP_STRING([--enable-webrtc-aec], [Enable the optional WebRTC-based echo canceller]))
 
-AS_IF([test "x$enable_webrtc_aec" = "xyes" && test "$HAVE_CXX11" = "0"],
-    [AC_MSG_ERROR([*** webrtc-audio-processing needs C++11 support])])
+AS_IF([test "x$enable_webrtc_aec" = "xyes" && test "$HAVE_CXX17" = "0"],
+    [AC_MSG_ERROR([*** webrtc-audio-processing needs C++17 support])])
 
 AS_IF([test "x$enable_webrtc_aec" != "xno"],
     [PKG_CHECK_MODULES(WEBRTC, [ webrtc-audio-processing-1 >= 1.0 ], [HAVE_WEBRTC=1], [HAVE_WEBRTC=0])],
